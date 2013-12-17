@@ -27,11 +27,12 @@ class Led():
 
 class simpleapp_tk(Tkinter.Tk):
   def __init__(self,parent):
+    self.output_file = open('frames.h','w')
     self.sequence_index = 0
     self.sequence_list = ""
+    self.all_sequences = ""
     self.sequence_string = ""
     self.num_frames = 0
-    print "main calling init"
     Tkinter.Tk.__init__(self,parent)
     self.parent = parent
     self.tmp_byte = bitstring.BitArray('0x00')
@@ -44,11 +45,11 @@ class simpleapp_tk(Tkinter.Tk):
       for _col in range(num_cols):
         self.checkboxes[_row][_col] = Led(self, _row, _col)
 
-    button = Tkinter.Button(self,text=u"next_frame", command=self.next_frame)
+    button = Tkinter.Button(self,text=u"save_frame", command=self.save_frame)
     button.grid(column=9,row=0)
-    button = Tkinter.Button(self,text=u"next_sequence", command=self.next_sequence)
+    button = Tkinter.Button(self,text=u"save_sequence", command=self.save_sequence)
     button.grid(column=10,row=0)
-    button = Tkinter.Button(self,text=u"done", command=self.done)
+    button = Tkinter.Button(self,text=u"generate_file", command=self.generate_file)
     button.grid(column=11,row=0)
     button = Tkinter.Checkbutton(self,text=u"wrap", command=self.wrap_button)
     button.grid(column=10,row=1)
@@ -63,16 +64,17 @@ class simpleapp_tk(Tkinter.Tk):
     button = Tkinter.Button(self,text=u"invert", command=self.invert)
     button.grid(column=10,row=3)
 
-  def next_sequence(self):
+  def save_sequence(self):
     self.sequence_string = self.sequence_string[0:len(self.sequence_string)-2]
-    self.sequence_string =  ("static const uint8_t frame_%d[%d][NUM_COLUMNS] =\n{\n" % (self.sequence_index, self.num_frames)) + self.sequence_string + "\n}"
-    print self.sequence_string
+    self.sequence_string =  ("\nstatic const uint8_t frame_%d[%d][NUM_COLS] =\n{\n" % (self.sequence_index, self.num_frames)) + self.sequence_string + "\n};"
+    self.all_sequences += self.sequence_string
+#    print self.sequence_string
     self.sequence_string = ""
     self.sequence_index += 1
-    self.sequence_list += "  { &frame_%d, %d },\n" % (self.sequence_index, self.num_frames)
+    self.sequence_list += "  { &frame_%d[0][0], %d },\n" % ((self.sequence_index-1), self.num_frames)
     self.num_frames = 0
 
-  def next_frame(self):
+  def save_frame(self):
     self.update_led_array()
     a = packbits(self.led_array)
     header_str = "  {"
@@ -83,11 +85,15 @@ class simpleapp_tk(Tkinter.Tk):
     self.num_frames += 1
     self.sequence_string +=  header_str
     
-  def done(self):
+  def generate_file(self):
    self.sequence_list = self.sequence_list[0:len(self.sequence_list)-2]
-   print "struct LedSequence\n{\n    char* seq_p;\n    int num_frames;\n}LedSequence;\n\nLedSequence sequence_list[%d] = {" % self.sequence_index
-   print self.sequence_list
-   print "}"
+   #print self.all_sequences
+   self.output_file.write(self.all_sequences)
+   self.output_file.write("\n\n#define NUM_SEQUENCES %d\n" % self.sequence_index);
+   self.output_file.write("\n\ntypedef struct\n{\n    const uint8_t* seq_p;\n    int num_frames;\n} LedSequence;\n\nLedSequence sequence_list[NUM_SEQUENCES] =\n  {\n")
+   self.output_file.write( self.sequence_list)
+   self.output_file.write("\n};\n\n")
+   self.output_file.close()
 
   def update_checkboxes(self):
     for _row in reversed(range(num_rows)):
