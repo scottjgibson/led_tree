@@ -4,11 +4,17 @@
 #define NUM_COLS 8
 #define NUM_ROWS 7
 #define SWITCH_PIN 10
-int row_pins[NUM_ROWS] = {A0, A1, A2, A3, A4, A5, 13};
-int col_pins[NUM_COLS] = {2, 3, 4, 5, 6, 7, 8, 9};
-byte current_row = 0;
-int current_frame = 0;
-int current_sequence = 0;
+int rowPins[NUM_ROWS] = {A0, A1, A2, A3, A4, A5, 13};
+int columnPins[NUM_COLS] = {2, 3, 4, 5, 6, 7, 8, 9};
+byte currentRow = 0;
+int currentFrame = 0;
+int currentSequence = 0;
+
+#define IDLE_MODE 0
+#define SEQUENCE_MODE 1
+#define AUTO_MODE 2
+
+int displayMode = 0;
 
 #define NUM_FRAMES 166
 
@@ -63,7 +69,7 @@ typedef struct
     int num_frames;
 } LedSequence;
 
-LedSequence sequence_list[NUM_SEQUENCES] =
+LedSequence sequenceList[NUM_SEQUENCES] =
   {
   { &frame_0[0][0], 8 },
   { &frame_1[0][0], 8 },
@@ -77,19 +83,19 @@ void setup()
      
   for (int i = 0; i < NUM_ROWS; i++)
   {
-    pinMode(row_pins[i], OUTPUT);
-    digitalWrite(row_pins[i], HIGH);
+    pinMode(rowPins[i], OUTPUT);
+    digitalWrite(rowPins[i], HIGH);
   }
 
   for (int i = 0; i < NUM_COLS; i++)
   {
-    pinMode(col_pins[i], OUTPUT);
-    digitalWrite(col_pins[i], LOW);
+    pinMode(columnPins[i], OUTPUT);
+    digitalWrite(columnPins[i], LOW);
   }
   
   pinMode(SWITCH_PIN, INPUT);
   digitalWrite(SWITCH_PIN, HIGH);
-  current_frame = 0;
+  currentFrame = 0;
   
   FrequencyTimer2::disable();
   FrequencyTimer2::setPeriod(2000);
@@ -100,43 +106,56 @@ void setup()
 // Interrupt routine
 void display() {
   
-  digitalWrite(row_pins[current_row], HIGH);  // Turn whole previous column off
-  current_row++;
+  digitalWrite(rowPins[currentRow], HIGH);  // Turn whole previous column off
+  currentRow++;
   
-  if (current_row == NUM_ROWS) {
-    current_row = 0;
+  if (currentRow == NUM_ROWS) {
+    currentRow = 0;
   }
-  uint8_t row_byte = *(sequence_list[current_sequence].seq_p + (current_frame*NUM_ROWS) + current_row);
+  uint8_t row_byte = *(sequenceList[currentSequence].seq_p + (currentFrame*NUM_ROWS) + currentRow);
   
-  if (current_row == (NUM_ROWS - 1))
+  if (displayMode == IDLE_MODE)
   {
-    //Top row only has one LED
-   // if (frames[current_frame][current_row])
-    if (row_byte)    
+    //IDLE MODE - All LEDs on
+    for (int i = 0; i < NUM_COLS; i++)
     {
-      digitalWrite(row_pins[current_row], LOW); // Turn whole column on at once (for equal lighting times)     
+      digitalWrite(columnPins[i], HIGH);
     }
-    else
-    {
-      digitalWrite(row_pins[current_row], HIGH); // Turn whole column on at once (for equal lighting times)
-    }
-    
+    digitalWrite(rowPins[currentRow], LOW); // Turn whole column on at once (for equal lighting times)
+  
   }
   else
   {
-    for (int i = 0; i < NUM_COLS; i++)
+    if (currentRow == (NUM_ROWS - 1))
     {
-      //if ((frames[current_frame][current_row] >> i) & 0x01)
-      if ((row_byte >> i) & 0x01)
+      //Top row only has one LED
+     // if (frames[currentFrame][currentRow])
+      if (row_byte)    
       {
-        digitalWrite(col_pins[i], HIGH);
+        digitalWrite(rowPins[currentRow], LOW); // Turn whole column on at once (for equal lighting times)     
       }
       else
       {
-        digitalWrite(col_pins[i], LOW);
+        digitalWrite(rowPins[currentRow], HIGH); // Turn whole column on at once (for equal lighting times)
       }
+      
     }
-    digitalWrite(row_pins[current_row], LOW); // Turn whole column on at once (for equal lighting times)
+    else
+    {
+      for (int i = 0; i < NUM_COLS; i++)
+      {
+        //if ((frames[currentFrame][currentRow] >> i) & 0x01)
+        if ((row_byte >> i) & 0x01)
+        {
+          digitalWrite(columnPins[i], HIGH);
+        }
+        else
+        {
+          digitalWrite(columnPins[i], LOW);
+        }
+      }
+      digitalWrite(rowPins[currentRow], LOW); // Turn whole column on at once (for equal lighting times)
+    }
   }
 }
 
@@ -150,20 +169,20 @@ long switchTimer_start = 0;
 long switchTimer_elapsed = 0;
 
 
-int button_state = HIGH;
-int prev_button_state = HIGH;
-int idleMode = 0;
+int buttonState = HIGH;
+int buttonState_prev = HIGH;
+
 
 
 void loop()
 {
   unsigned long currentMillis = millis();
   
-  prev_button_state = button_state;
-  button_state = digitalRead(SWITCH_PIN);
+  buttonState_prev = buttonState;
+  buttonState = digitalRead(SWITCH_PIN);
   
   //button pressed
-  if ((button_state == LOW) && (prev_button_state == HIGH))
+  if ((buttonState == LOW) && (buttonState_prev == HIGH))
   {
     //start timer
     switchTimer_start = currentMillis;
@@ -171,60 +190,74 @@ void loop()
   }
 
   //button released
-  if ((button_state == HIGH) && (prev_button_state == LOW))
+  if ((buttonState == HIGH) && (buttonState_prev == LOW))
   {
     switchTimer_elapsed = currentMillis - switchTimer_start;
     
-    if (switchTimer_elapsed < 100)
+    if (switchTimer_elapsed < 50)
     {
       //debouncing
+    }
+    else if (switchTimer_elapsed < 300)
+    {
+      currentFrame = 0;
+      if (currentSequence == NUM_SEQUENCES)
+      {
+        currentSequence = 0;
+      }
+      else
+      {
+        currentSequence++;
+      }
     }
     else if (switchTimer_elapsed < 1000)
     {
       //Short Press
-    }
-    else
-    {
-      //Long Press: toggle in and out of idle mode
-      if (idleMode == 1)
+      if (displayMode != IDLE_MODE)
       {
-        idleMode = 0;
+        displayMode = IDLE_MODE;
       }
       else
       {
-        idleMode = 1;
+        displayMode = SEQUENCE_MODE;
       } 
+    }
+    else
+    {
+      displayMode = AUTO_MODE;
     }
   }
   
   
   if(currentMillis - sequenceTimer_prev > sequenceTimer_duration)
   {
-    sequenceTimer_prev = currentMillis;   
-    
-    current_frame = 0;
-    
-    if (current_sequence == NUM_SEQUENCES)
-    {
-      current_sequence = 0;
-    }
-    else
-    {
-      current_sequence++;
-    }
+    sequenceTimer_prev = currentMillis;  
+   
+   if (displayMode == AUTO_MODE)
+   {   
+      currentFrame = 0;
+      if (currentSequence == NUM_SEQUENCES)
+      {
+        currentSequence = 0;
+      }
+      else
+      {
+        currentSequence++;
+      }
+   }
   }
  
   if(currentMillis - frameTimer_prev > frameTimer_duration)
   {
     frameTimer_prev = currentMillis;   
     
-    if (current_frame == sequence_list[current_sequence].num_frames)
+    if (currentFrame == sequenceList[currentSequence].num_frames)
     {
-      current_frame = 0;
+      currentFrame = 0;
     }
     else
     {
-      current_frame++;
+      currentFrame++;
     }
   }
   
